@@ -28,7 +28,7 @@ locker.Acquire(key, lock.WithAcquireTimeout(5*time.Second))
 
 尝试获取锁，如果没有获取到锁返回 `ErrAlreadyLocked` 错误
 ```go
-locker.Acquire(key, lock.WithTry())
+locker.Acquire(key, lock.WithTry(true))
 ```
 
 锁过期时间，如果为0则不会过期，需要手动释放锁

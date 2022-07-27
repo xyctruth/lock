@@ -48,7 +48,7 @@ func TestLock(t *testing.T) {
 		require.NoError(t, err)
 	}()
 
-	_, err = locker.Acquire(key, lock.WithTry())
+	_, err = locker.Acquire(key, lock.WithTry(true))
 	require.Error(t, err, lock.ErrAlreadyLocked)
 
 	_, err = locker.Acquire(key, lock.WithAcquireTimeout(5*time.Second))
@@ -72,7 +72,7 @@ func TestLockByTTL(t *testing.T) {
 		require.NoError(t, err)
 	}()
 
-	_, err = locker.Acquire(key, lock.WithTry())
+	_, err = locker.Acquire(key, lock.WithTry(true))
 	require.Error(t, err, lock.ErrAlreadyLocked)
 
 	lock2, err := locker.Acquire(key, lock.WithAcquireTimeout(5*time.Second))

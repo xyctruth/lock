@@ -32,9 +32,9 @@ type Options struct {
 type LockerOpt func(op *Options)
 
 // WithTry 尝试获取锁，如果没有获取到返回 ErrAlreadyLocked 错误
-func WithTry() LockerOpt {
+func WithTry(try bool) LockerOpt {
 	return LockerOpt(func(op *Options) {
-		op.Try = true
+		op.Try = try
 	})
 }
 
