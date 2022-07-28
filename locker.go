@@ -31,7 +31,7 @@ type Options struct {
 
 type LockerOpt func(op *Options)
 
-// WithTry 尝试获取锁，如果没有获取到返回 ErrAlreadyLocked 错误
+// WithTry 非堵塞尝试获取锁，如果没有获取到返回 ErrAlreadyLocked 错误
 func WithTry(try bool) LockerOpt {
 	return LockerOpt(func(op *Options) {
 		op.Try = try
@@ -45,7 +45,7 @@ func WithAcquireTimeout(timeout time.Duration) LockerOpt {
 	})
 }
 
-// WithLockTTL 锁过期时间，如果为0则不会过期，需要手动释放锁
+// WithLockTTL 锁过期时间，如果为0则会自动续约不会过期，需要手动释放锁
 func WithLockTTL(ttl time.Duration) LockerOpt {
 	return LockerOpt(func(op *Options) {
 		op.TTL = ttl

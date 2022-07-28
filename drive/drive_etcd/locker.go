@@ -11,20 +11,6 @@ import (
 	"go.etcd.io/etcd/client/v3/concurrency"
 )
 
-type Config struct {
-	// Endpoints is a list of URLs.
-	Endpoints []string `json:"endpoints"`
-
-	// DialTimeout is the timeout for failing to establish a connection.
-	DialTimeout time.Duration `json:"dial-timeout"`
-
-	// Username is a user name for authentication.
-	Username string `json:"username"`
-
-	// Password is a password for authentication.
-	Password string `json:"password"`
-}
-
 type Locker struct {
 	client *etcdClient.Client
 	op     *lock.Options
@@ -32,7 +18,6 @@ type Locker struct {
 
 func NewEtcdLocker(config etcdClient.Config, opts ...lock.LockerOpt) (lock.Locker, error) {
 	client, err := etcdClient.New(config)
-
 	if err != nil {
 		return nil, err
 	}
@@ -65,7 +50,9 @@ func (locker *Locker) acquire(key string, opts ...lock.LockerOpt) (lock.Lock, er
 	}
 
 	ttl := int(op.TTL / time.Second)
-	session, err := concurrency.NewSession(locker.client, concurrency.WithTTL(ttl))
+	ctx, cancel := context.WithTimeout(context.Background(), op.AcquireTimeout)
+	defer cancel()
+	session, err := concurrency.NewSession(locker.client, concurrency.WithTTL(ttl), concurrency.WithContext(ctx))
 	if err != nil {
 		return nil, err
 	}
@@ -74,8 +61,8 @@ func (locker *Locker) acquire(key string, opts ...lock.LockerOpt) (lock.Lock, er
 	mutex := concurrency.NewMutex(session, key)
 
 	if op.Try {
-		// 无堵塞 尝试获取锁，已上锁返回已上锁错误
-		tryLockErr := locker.tryLock(mutex, op.AcquireTimeout)
+		// 无堵塞 尝试获取锁
+		tryLockErr := locker.tryLock(ctx, mutex)
 		if tryLockErr == concurrency.ErrLocked {
 			session.Close()
 			return nil, lock.ErrAlreadyLocked
@@ -86,21 +73,21 @@ func (locker *Locker) acquire(key string, opts ...lock.LockerOpt) (lock.Lock, er
 			return nil, tryLockErr
 		}
 	} else {
-		// 堵塞获取锁， 超过获取锁时间返回  超过了最后期限错误
-		tryLockErr := locker.lock(mutex, op.AcquireTimeout)
+		// 堵塞获取锁
+		lockErr := locker.lock(ctx, mutex)
 
-		if tryLockErr == context.DeadlineExceeded {
+		if lockErr == context.DeadlineExceeded {
 			session.Close()
 			return nil, lock.ErrDeadlineExceeded
 		}
 
-		if tryLockErr != nil {
+		if lockErr != nil {
 			session.Close()
-			return nil, tryLockErr
+			return nil, lockErr
 		}
 	}
 
-	// 不自动续约
+	// 传入了 ttl 不自动续约, 如果没传 ttl 会自动续约
 	if ttl > 0 {
 		session.Orphan()
 	}
@@ -109,32 +96,11 @@ func (locker *Locker) acquire(key string, opts ...lock.LockerOpt) (lock.Lock, er
 	return l, nil
 }
 
-type Lock struct {
-	*sync.Mutex
-	mutex   *concurrency.Mutex
-	session *concurrency.Session
-}
-
-func (l *Lock) Release() error {
-	if l == nil {
-		return lock.ErrNotFoundLocked
-	}
-	l.Lock()
-	defer l.Unlock()
-
-	defer l.session.Close()
-	return l.mutex.Unlock(context.Background())
-}
-
-func (locker *Locker) lock(mutex *concurrency.Mutex, tryLockTimeout time.Duration) error {
-	ctx, cancel := context.WithTimeout(context.Background(), tryLockTimeout)
-	defer cancel()
+func (locker *Locker) lock(ctx context.Context, mutex *concurrency.Mutex) error {
 	return mutex.Lock(ctx)
 }
 
-func (locker *Locker) tryLock(mutex *concurrency.Mutex, tryLockTimeout time.Duration) error {
-	ctx, cancel := context.WithTimeout(context.Background(), tryLockTimeout)
-	defer cancel()
+func (locker *Locker) tryLock(ctx context.Context, mutex *concurrency.Mutex) error {
 	return mutex.TryLock(ctx)
 }
 
@@ -147,4 +113,21 @@ func addPrefix(key string) string {
 		key = "/" + key
 	}
 	return prefix + key
+}
+
+type Lock struct {
+	*sync.Mutex
+	mutex   *concurrency.Mutex
+	session *concurrency.Session
+}
+
+func (l *Lock) Release() error {
+	if l == nil {
+		return lock.ErrNotFoundLock
+	}
+	l.Lock()
+	defer l.Unlock()
+
+	defer l.session.Close()
+	return l.mutex.Unlock(context.Background())
 }
